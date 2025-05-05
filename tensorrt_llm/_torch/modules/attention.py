@@ -108,6 +108,7 @@ class Attention(nn.Module):
         position_ids: Optional[torch.LongTensor],
         hidden_states: torch.Tensor,
         attn_metadata: AttentionMetadata,
+        skip_sdpa_for_context: bool = False,
         **kwargs,
     ) -> torch.Tensor:
         qkv = self.qkv_proj(hidden_states)
@@ -135,6 +136,7 @@ class Attention(nn.Module):
                 None,
                 None,
                 attn_metadata,
+                skip_sdpa_for_context,
                 out_scale=out_scale,
             )
         else:
@@ -147,7 +149,8 @@ class Attention(nn.Module):
                     [q.contiguous(), k.contiguous()], attn_metadata)
 
             attn_output = self.attn.forward(q.contiguous(), k.contiguous(),
-                                            v.contiguous(), attn_metadata)
+                                            v.contiguous(), attn_metadata,
+                                            skip_sdpa_for_context)
 
         attn_output = self.o_proj(attn_output)
 

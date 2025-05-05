@@ -139,8 +139,9 @@ class TorchDecoder(Decoder):
 
     def _meet_max_token_stop_criteria(self, request: LlmRequest,
                                       num_tokens: int):
-
-        return num_tokens - request.py_orig_prompt_len >= request.py_max_new_tokens
+        # MINWEI
+        return True
+        # return num_tokens - request.py_orig_prompt_len >= request.py_max_new_tokens
 
     def _meet_stop_token_criteria(self, request: LlmRequest):
         if not hasattr(request, 'py_stop_words_list'):
@@ -192,7 +193,6 @@ class TorchDecoder(Decoder):
         beam_idx = 0
         for request in scheduled_requests.context_requests:
             if request.get_context_remaining_length() != 0:
-                idx += 1
                 continue
 
             if request.state != LlmRequestState.GENERATION_COMPLETE:
@@ -204,6 +204,7 @@ class TorchDecoder(Decoder):
 
         if hasattr(scheduled_requests, 'chunked_requests'):
             for request in scheduled_requests.chunked_requests:
+                assert False
                 idx += 1
 
         extend_requests = []

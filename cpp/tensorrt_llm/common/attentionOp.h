@@ -112,6 +112,8 @@ public:
         // optional when cross attention
         int32_t const* encoder_input_lengths = nullptr;
         int64_t const* runtime_perf_knobs = nullptr;
+        // Whether to skip SDPA for context phase
+        bool skip_sdpa_for_context = false;
     };
 
     template <typename T>

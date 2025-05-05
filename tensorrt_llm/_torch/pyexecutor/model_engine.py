@@ -24,7 +24,6 @@ from tensorrt_llm._torch.pyexecutor.distributed import MPIDist
 from tensorrt_llm._torch.pyexecutor.resource_manager import KVCacheManager
 from tensorrt_llm.logger import logger
 from tensorrt_llm.mapping import Mapping
-
 from ..._utils import nvtx_range
 from ...models.modeling_utils import QuantAlgo
 from .config import PyTorchConfig
@@ -492,6 +491,7 @@ class PyTorchModelEngine(ModelEngine):
                 weights = load_weights(checkpoint_dir)
             model.load_weights(weights)
             torch.cuda.current_stream().synchronize()
+        print("model is ", model)
         return model
 
     def _init_max_seq_len(self):
@@ -542,6 +542,8 @@ class PyTorchModelEngine(ModelEngine):
         position_ids = []
         num_cached_tokens_per_seq = []
         multi_modal_data = []
+        num_context_logits = []
+        num_context_logits_full = []
 
         batch_idx = 0
 
@@ -552,6 +554,11 @@ class PyTorchModelEngine(ModelEngine):
             begin_compute = request.context_current_position
             end_compute = begin_compute + request.context_chunk_size
             prompt_tokens = all_prompt_tokens[begin_compute:end_compute]
+            num_context_logits_full.append(end_compute - begin_compute)
+            if request.is_last_context_chunk():
+                num_context_logits.append(1)
+            else:
+                num_context_logits.append(0)
 
             position_ids.extend(
                 range(begin_compute, begin_compute + len(prompt_tokens)))
@@ -667,8 +674,11 @@ class PyTorchModelEngine(ModelEngine):
         attn_metadata.kv_cache_params = KVCacheParams(
             use_cache=True, num_cached_tokens_per_seq=num_cached_tokens_per_seq)
         attn_metadata.kv_cache_manager = kv_cache_manager
-
+        # For simplicity, just return all the the logits if we have special gather_ids
+        # from speculative decoding.
+        attn_metadata.num_context_logits = num_context_logits_full if is_spec_decode else num_context_logits
         attn_metadata.prepare()
+
         self.iter_states['num_ctx_requests'] = num_ctx_requests
         self.iter_states['num_ctx_tokens'] = num_ctx_tokens
         self.iter_states['num_generation_tokens'] = num_generation_tokens
@@ -726,6 +736,7 @@ class PyTorchModelEngine(ModelEngine):
             )
 
         attn_metadata.num_contexts = len(scheduled_requests.context_requests)
+        attn_metadata.num_context_logits = [0] * attn_metadata.num_contexts
 
         return {
             'attn_metadata': attn_metadata,
@@ -742,6 +753,7 @@ class PyTorchModelEngine(ModelEngine):
         """
         Prepare inputs for Pytorch Model.
         """
+        assert False
         sequence_lengths = []
         input_ids = []
         prompt_lengths = []
@@ -1025,11 +1037,9 @@ class PyTorchModelEngine(ModelEngine):
     @nvtx_range("_forward_step")
     def _forward_step(self, inputs: Dict[str, Any],
                       gather_ids: Optional[torch.Tensor]) -> torch.Tensor:
-        # For simplicity, just return all the the logits if we have special gather_ids
-        # from speculative decoding.
-        logits = self.model.forward(**inputs,
-                                    return_context_logits=gather_ids
-                                    is not None)
+
+        print("inputs is ", inputs)
+        logits = self.model.forward(**inputs)
         if gather_ids is not None:
             return {'logits': logits[gather_ids]}
         else:

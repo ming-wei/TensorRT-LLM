@@ -2,6 +2,7 @@ import contextlib
 import fnmatch
 import math
 import time
+
 from abc import ABC
 from typing import Dict, Generic, Optional, Tuple, Type, TypeVar
 
@@ -16,7 +17,7 @@ from ..attention_backend import AttentionMetadata
 from ..distributed import ParallelConfig, TensorParallelMode
 from ..model_config import ModelConfig, TConfig
 from ..modules.embedding import Embedding, LMHead
-from ..modules.logits_procesor import LogitsProcessor
+from ..modules.logits_procesor import LogitsProcessor, ContextLogitMode
 from ..modules.rms_norm import RMSNorm
 
 
@@ -228,23 +229,29 @@ class DecoderModelForCausalLM(nn.Module,
         input_ids: torch.LongTensor = None,
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
-        return_context_logits: bool = False,
         **kwargs,
     ) -> torch.Tensor:
+        print("self.model is ", self.model)
+        print("self.logits_processor is ", self.logits_processor)
+        assert attn_metadata.num_context_logits is not None, "num_context_logits must be provided"
         hidden_states = self.model(
             input_ids=input_ids,
             attn_metadata=attn_metadata,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
         )
+        skip_logits_processing = attn_metadata.num_generations == 0 and all(x == 0 for x in attn_metadata.num_context_logits)
 
-        logits = self.logits_processor.forward(
-            hidden_states,
-            self.lm_head,
-            attn_metadata,
-            return_context_logits,
-        )
-        return logits
+        if not skip_logits_processing:
+            logits = self.logits_processor.forward(
+                hidden_states,
+                self.lm_head,
+                attn_metadata,
+                return_context_logits=False,
+            )
+            return logits
+        else:
+            return None
 
     def load_weights(self, weights: Dict):
         tp_size = self.model_config.mapping.tp_size

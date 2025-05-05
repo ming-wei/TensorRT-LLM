@@ -95,6 +95,8 @@ class AttentionMetadata:
     # The shape is (batch_size) if provided.
     prompt_lens: Optional[List[int]] = None
 
+    num_context_logits: Optional[List[int]] = None
+
     # These fields indicate whether the runtime can use various features.
     # The kernels may or may not have different behaviors when these
     # are enabled.

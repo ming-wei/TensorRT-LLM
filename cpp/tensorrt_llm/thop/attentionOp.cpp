@@ -56,7 +56,7 @@ public:
         AttentionOp const& op, int const num_tokens, int const max_attention_window_size) const
         = 0;
     virtual void run(AttentionOp& op, bool const is_context, int32_t const seq_offset, int32_t const num_seqs,
-        int32_t const token_offset, int32_t const num_tokens, torch::Tensor workspace, torch::Tensor output,
+        int32_t const token_offset, int32_t const num_tokens, bool skip_sdpa_for_context, torch::Tensor workspace, torch::Tensor output,
         torch::Tensor qkv, torch::Tensor sequence_length, torch::Tensor host_past_key_value_lengths,
         torch::Tensor context_lengths, torch::Tensor host_context_lengths, torch::Tensor kv_cache_block_offsets,
         torch::Tensor host_kv_cache_block_offsets, torch::Tensor host_kv_cache_pool_pointers,
@@ -126,7 +126,7 @@ public:
     }
 
     void run(AttentionOp& op, bool const is_context, int32_t const seq_offset, int32_t const num_seqs,
-        int32_t const token_offset, int32_t const num_tokens, torch::Tensor workspace, torch::Tensor output,
+        int32_t const token_offset, int32_t const num_tokens, bool skip_sdpa_for_context, torch::Tensor workspace, torch::Tensor output,
         torch::Tensor qkv, torch::Tensor sequence_length, torch::Tensor host_past_key_value_lengths,
         torch::Tensor context_lengths, torch::Tensor host_context_lengths, torch::Tensor kv_cache_block_offsets,
         torch::Tensor host_kv_cache_block_offsets, torch::Tensor host_kv_cache_pool_pointers,
@@ -266,6 +266,7 @@ public:
         common_enqueue_params.context_lengths = context_lengths_ptr;
         common_enqueue_params.host_context_lengths = host_context_lengths.data_ptr<int32_t>();
         common_enqueue_params.workspace = workspace_ptr;
+        common_enqueue_params.skip_sdpa_for_context = skip_sdpa_for_context;
 
         if (is_context) // context stage
         {
@@ -350,6 +351,7 @@ torch::Tensor attention(torch::Tensor q, torch::optional<torch::Tensor> k, torch
     torch::optional<torch::Tensor> kv_b_proj, torch::optional<torch::Tensor> k_b_proj_trans,
     torch::optional<torch::Tensor> q_b_proj_scale, torch::optional<torch::Tensor> kv_b_proj_scale,
     torch::optional<torch::Tensor> k_b_proj_trans_scale, bool const is_fused_qkv, bool const update_kv_cache,
+    bool const skip_sdpa_for_context,
     int64_t const layer_idx, int64_t const num_heads, int64_t const num_kv_heads, int64_t const head_size,
     int64_t const tokens_per_block, int64_t const max_num_requests, int64_t const max_context_length,
     int64_t const attention_window_size, int64_t const sink_token_length, int64_t const beam_width,
@@ -519,7 +521,7 @@ torch::Tensor attention(torch::Tensor q, torch::optional<torch::Tensor> k, torch
         runner->run(*op,
             /*is_context=*/true, seq_offset,
             /*num_seqs=*/num_contexts, token_offset,
-            /*num_tokens=*/num_ctx_tokens, workspace, output, qkv, sequence_length, host_past_key_value_lengths,
+            /*num_tokens=*/num_ctx_tokens, skip_sdpa_for_context, workspace, output, qkv, sequence_length, host_past_key_value_lengths,
             context_lengths, host_context_lengths, kv_cache_block_offsets, host_kv_cache_block_offsets,
             host_kv_cache_pool_pointers, host_kv_cache_pool_mapping, cache_indirection, kv_scale_orig_quant,
             kv_scale_quant_orig, out_scale, rotary_inv_freq, rotary_cos_sin, q_b_proj, kv_b_proj, k_b_proj_trans,
@@ -533,7 +535,7 @@ torch::Tensor attention(torch::Tensor q, torch::optional<torch::Tensor> k, torch
         runner->run(*op,
             /*is_context=*/false, seq_offset,
             /*num_seqs=*/num_generations, token_offset,
-            /*num_tokens=*/num_gen_tokens, workspace, output, qkv, sequence_length, host_past_key_value_lengths,
+            /*num_tokens=*/num_gen_tokens, skip_sdpa_for_context, workspace, output, qkv, sequence_length, host_past_key_value_lengths,
             context_lengths, host_context_lengths, kv_cache_block_offsets, host_kv_cache_block_offsets,
             host_kv_cache_pool_pointers, host_kv_cache_pool_mapping, cache_indirection, kv_scale_orig_quant,
             kv_scale_quant_orig, out_scale, rotary_inv_freq, rotary_cos_sin, q_b_proj, kv_b_proj, k_b_proj_trans,
@@ -580,6 +582,7 @@ TORCH_LIBRARY_FRAGMENT(trtllm, m)
         ", Tensor? k_b_proj_trans_scale"
         ", bool is_fused_qkv"
         ", bool update_kv_cache"
+        ", bool skip_sdpa_for_context"
         ", int layer_idx"
         ", int num_heads"
         ", int num_kv_heads"

@@ -250,6 +250,7 @@ class TrtllmAttentionWrapper:
         out_dtype: Optional[torch.dtype] = None,
         is_fused_qkv: bool = True,
         update_kv_cache: bool = True,
+        skip_sdpa_for_context: bool = False,
         attention_mask: AttentionMask = PredefinedAttentionMask.CAUSAL,
     ):
         """
@@ -261,6 +262,7 @@ class TrtllmAttentionWrapper:
             out_dtype (Optional[torch.dtype]): Output data type if provided.
             is_fused_qkv (bool): Whether QKV tensor is provided.
             update_kv_cache (bool): Whether KV cache is updated.
+            skip_sdpa_for_context (bool): Whether to skip SDPA for context phase.
             attention_mask (AttentionMask): Attention mask. See definition of AttentionMask for accepted types. Defaults to predefined causal mask.
         Returns:
             torch.Tensor with shape (num_tokens, num_heads * head_dim).
@@ -345,6 +347,7 @@ class TrtllmAttentionWrapper:
             self.k_b_proj_trans_scale,
             is_fused_qkv,
             update_kv_cache,
+            skip_sdpa_for_context,
             self.layer_idx,
             self.num_heads,
             1 if self.is_mla_enable else self.num_kv_heads,
@@ -525,6 +528,7 @@ class TrtllmAttention(AttentionBackend[TrtllmAttentionMetadata]):
         k: Optional[torch.Tensor],
         v: Optional[torch.Tensor],
         metadata: TrtllmAttentionMetadata,
+        skip_sdpa_for_context: bool = False,
         out_scale: Optional[torch.Tensor] = None,
         *,
         attention_mask: AttentionMask = PredefinedAttentionMask.CAUSAL,
@@ -538,6 +542,7 @@ class TrtllmAttention(AttentionBackend[TrtllmAttentionMetadata]):
     ) -> torch.Tensor:
         # This is only for memory estimation for now.
         # NOTE: this method is not accurate while it works for most scenario.
+        print("skip_sdpa_for_context is ", skip_sdpa_for_context)
         if metadata is None or metadata.kv_cache_manager is None:
             if not self.is_mla_enable:
                 num_heads = self.wrapper.num_heads
@@ -646,5 +651,6 @@ class TrtllmAttention(AttentionBackend[TrtllmAttentionMetadata]):
                                   and k is None,
                                   update_kv_cache=not metadata.is_cross
                                   or k is not None,
+                                  skip_sdpa_for_context=skip_sdpa_for_context,
                                   attention_mask=attention_mask)
         return output

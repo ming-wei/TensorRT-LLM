@@ -5,7 +5,7 @@ from torch import nn
 from transformers import LlamaConfig
 
 from tensorrt_llm.functional import PositionEmbeddingType
-
+from tensorrt_llm._torch.models.context_logit_mode import ContextLogitMode
 from ..attention_backend import AttentionMetadata
 from ..attention_backend.interface import PositionalEmbeddingParams, RopeParams
 from ..model_config import ModelConfig
@@ -98,8 +98,13 @@ class LlamaDecoderLayer(DecoderLayer):
         hidden_states: torch.Tensor,
         attn_metadata: AttentionMetadata,
         residual: Optional[torch.Tensor] = None,
+        ignore_context_logits: bool = False,
         **kwargs,
     ) -> torch.Tensor:
+        print("ignore_context_logits is ", ignore_context_logits)
+        skip_sdpa_for_context = not ignore_context_logits and all(x == 0 for x in attn_metadata.num_context_logits)
+
+        assert hidden_states is not None
         if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
@@ -112,13 +117,21 @@ class LlamaDecoderLayer(DecoderLayer):
             position_ids=position_ids,
             hidden_states=hidden_states,
             attn_metadata=attn_metadata,
+            skip_sdpa_for_context=skip_sdpa_for_context,
             **kwargs,
         )
 
-        # Fully Connected
-        hidden_states, residual = self.post_attention_layernorm(
-            hidden_states, residual)
-        hidden_states = self.mlp(hidden_states)
+        assert hidden_states is not None
+
+        skip_post_attention_layernorm_and_mlp = skip_sdpa_for_context and attn_metadata.num_generations == 0
+
+        if not skip_post_attention_layernorm_and_mlp:
+            # Fully Connected
+            hidden_states, residual = self.post_attention_layernorm(
+                hidden_states, residual)
+            hidden_states = self.mlp(hidden_states)
+        else:
+            print("post_attention_layernorm and mlp skipped")
         return hidden_states, residual
 
 
@@ -162,13 +175,33 @@ class LlamaModel(DecoderModel):
         hidden_states = inputs_embeds
 
         residual = None
-        for decoder_layer in self.layers:
+
+        assert len(self.layers) >= 1, "LlamaModel must have at least 1 layer"
+        assert attn_metadata.num_context_logits is not None, "num_context_logits must be provided"
+
+        # TODO: implement context_logit_mode for layers
+        ENABLE_SKIP_SDPA_FOR_CONTEXT = True
+        layers_len = len(self.layers)
+        # MINWEI
+        for i in range(layers_len):
+            decoder_layer = self.layers[i]
+            if ENABLE_SKIP_SDPA_FOR_CONTEXT:
+                ignore_context_logits = (i < layers_len - 1)
+            else:
+                ignore_context_logits = True
             hidden_states, residual = decoder_layer(position_ids=position_ids,
                                                     hidden_states=hidden_states,
                                                     attn_metadata=attn_metadata,
-                                                    residual=residual)
+                                                    residual=residual,
+                                                    ignore_context_logits=ignore_context_logits
+                                                    )
 
-        hidden_states, _ = self.norm(hidden_states, residual)
+        skip_sdpa_for_context = ENABLE_SKIP_SDPA_FOR_CONTEXT and all(x == 0 for x in attn_metadata.num_context_logits)
+        skip_norm = skip_sdpa_for_context and attn_metadata.num_generations == 0
+        if not skip_norm:
+            hidden_states, _ = self.norm(hidden_states, residual)
+
+        assert hidden_states is not None
         return hidden_states
 
 

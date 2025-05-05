@@ -1,4 +1,5 @@
 import argparse
+import time
 
 from tensorrt_llm import SamplingParams
 from tensorrt_llm._torch import LLM
@@ -40,6 +41,8 @@ def main():
 
     llm = LLM(model=args.model_dir,
               tensor_parallel_size=args.tp_size,
+              max_batch_size=1,
+              enable_build_cache=True,
               enable_chunked_prefill=args.enable_chunked_prefill,
               pytorch_backend_config=pytorch_config,
               moe_expert_parallel_size=args.moe_ep_size,
@@ -48,21 +51,31 @@ def main():
               kv_cache_config=KvCacheConfig(
                   enable_block_reuse=args.kv_cache_enable_block_reuse))
 
-    prompts = [
-        "Hello, my name is",
-        "The president of the United States is",
-        "The capital of France is",
-        "The future of AI is",
-    ]
+    with open("/home/minwei/d/deepseek/prompt_96k_success.txt", "r") as f:
+        prompts = [f.read()]
+
+    prompts *= 10
+
     sampling_params = SamplingParams(max_tokens=32)
 
+    start_time = time.time()  # Add timing
     outputs = llm.generate(prompts, sampling_params)
+    end_time = time.time()  # Add timing
+    generation_time = end_time - start_time
+    print(f"Generation time: {generation_time:.2f} seconds")
+
     # Print the outputs.
     for output in outputs:
         prompt = output.prompt
         generated_text = output.outputs[0].text
-        print(f"Prompt: {prompt!r}, Generated text: {generated_text!r}")
+        print(f"Generated text: {generated_text!r}")
 
+    stats = llm.get_stats(timeout=600)
+    print(stats)
+    # Get stats asynchronously
+    for stat in stats:
+        prefill_time = stat.get('prefill_time', 0)
+        print(f"Prefill time: {prefill_time} ms")
 
 if __name__ == '__main__':
     main()

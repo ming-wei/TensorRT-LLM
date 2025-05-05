@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from ..attention_backend import AttentionMetadata
 from .linear import Linear
-
+from tensorrt_llm._torch.models.context_logit_mode import ContextLogitMode
 
 class LogitsProcessor(nn.Module):
 

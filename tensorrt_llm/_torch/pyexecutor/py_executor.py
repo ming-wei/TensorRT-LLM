@@ -201,6 +201,7 @@ class PyExecutor:
                     "falling back to normal executor loop.")
         else:
             event_loop = self._executor_loop_overlap if enable_overlap_scheduler else self._executor_loop
+        print("event_loop is ", event_loop)
         self.worker_thread = threading.Thread(target=event_loop, daemon=True)
         self.worker_thread.start()
         self.stats_lock = threading.Lock()
@@ -753,6 +754,7 @@ class PyExecutor:
 
     @nvtx_range("_schedule")
     def _schedule(self):
+        print("self.scheduler is ", self.scheduler)
         scheduler_output = self.scheduler.schedule_request(
             self.active_requests, self.inflight_req_ids)
         scheduled_requests = ScheduledRequests()
@@ -901,7 +903,8 @@ class PyExecutor:
     @nvtx_range("_decode")
     def _decode(self, scheduled_batch, batch_outputs):
         try:
-            if batch_outputs is not None:
+            print("batch_outputs is ", batch_outputs)
+            if batch_outputs is not None and batch_outputs['logits'] is not None:
                 self.decoder.decode(scheduled_batch, batch_outputs)
         except Exception as e:
             traceback.print_exc()
