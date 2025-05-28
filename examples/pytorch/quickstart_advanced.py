@@ -5,6 +5,7 @@ from tensorrt_llm._torch import LLM
 from tensorrt_llm._torch.pyexecutor.config import PyTorchConfig
 from tensorrt_llm.llmapi import (EagleDecodingConfig, KvCacheConfig,
                                  MTPDecodingConfig)
+from tensorrt_llm.logger import logger
 
 example_prompts = [
     "Hello, my name is",
@@ -74,6 +75,7 @@ def add_llm_args(parser):
     parser.add_argument('--enable_chunked_prefill',
                         default=False,
                         action='store_true')
+    parser.add_argument('--chunked_prefill_size', type=int, default=None)
     parser.add_argument('--use_cuda_graph', default=False, action='store_true')
     parser.add_argument('--print_iter_log',
                         default=False,
@@ -116,6 +118,7 @@ def setup_llm(args):
     kv_cache_config = KvCacheConfig(
         enable_block_reuse=args.kv_cache_enable_block_reuse,
         free_gpu_memory_fraction=args.kv_cache_fraction,
+        max_attention_window=[2048],
     )
 
     spec_decode_algo = args.spec_decode_algo.upper(
@@ -143,6 +146,7 @@ def setup_llm(args):
               moe_expert_parallel_size=args.moe_ep_size,
               moe_tensor_parallel_size=args.moe_tp_size,
               enable_chunked_prefill=args.enable_chunked_prefill,
+              chunked_prefill_size=args.chunked_prefill_size,
               speculative_config=spec_config)
 
     sampling_params = SamplingParams(
@@ -155,16 +159,22 @@ def setup_llm(args):
 
 
 def main():
+    logger.set_level("warning")
     args = parse_arguments()
     prompts = args.prompt if args.prompt else example_prompts
+
+    if True:
+        with open("/workspace/data/prompt_96k_success_0.txt", "r") as f:
+            # with open("/workspace/data/prompt_96k_2k.txt", "r") as f:
+            prompts = [f.read()]
 
     llm, sampling_params = setup_llm(args)
     outputs = llm.generate(prompts, sampling_params)
 
     for i, output in enumerate(outputs):
-        prompt = output.prompt
+        output.prompt
         generated_text = output.outputs[0].text
-        print(f"[{i}] Prompt: {prompt!r}, Generated text: {generated_text!r}")
+        print(f"[{i}] Generated text: {generated_text!r}")
 
 
 if __name__ == '__main__':

@@ -403,9 +403,8 @@ class PyTorchModelEngine(ModelEngine):
                 token_num = max(
                     1,
                     min(
-                        available_tokens, kv_cache_manager.max_seq_len -
-                        kv_cache_manager.num_extra_kv_tokens - 1 -
-                        max_num_draft_tokens),
+                        available_tokens, kv_cache_manager.chunk_context_size +
+                        kv_cache_manager.max_attention_window),
                 )
                 # Add one dummy request with the maximum possible sequence length.
                 # The sequence length is limited by both the max_seq_len and the number of available blocks.
@@ -510,9 +509,8 @@ class PyTorchModelEngine(ModelEngine):
                     warmup_batch_size = [1]
                 for bs in warmup_batch_size:
                     for num_tokens_per_request in [
-                            1,
-                            min(self.max_num_tokens // max(bs, 1),
-                                kv_cache_manager.max_seq_len - 1)
+                            1, kv_cache_manager.context_chunk_size +
+                            kv_cache_manager.max_attention_window
                     ]:
                         with release_batch(
                                 get_torch_compile_warmup_request(
@@ -533,8 +531,9 @@ class PyTorchModelEngine(ModelEngine):
 
         if self.pytorch_backend_config.autotuner_enabled:
             with no_cuda_graph(), autotune():
-                num_tokens_per_request = min(self.max_num_tokens,
-                                             kv_cache_manager.max_seq_len - 1)
+                num_tokens_per_request = min(
+                    self.max_num_tokens, kv_cache_manager.context_chunk_size +
+                    kv_cache_manager.max_attention_window)
                 with release_batch(
                         get_torch_compile_warmup_request(
                             1, num_tokens_per_request)) as batch:
